@@ -20,6 +20,7 @@
         .group { display: flex; flex-direction: column; }
         label { font-size: 0.88rem; font-weight: 600; margin-bottom: 4px; color: #475569; }
         input, select { padding: 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; }
+        .auto-calculated { background-color: #f0fdf4; border-color: #86efac; color: #166534; font-weight: bold; }
         .hint { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
         button { width: 100%; margin-top: 20px; padding: 12px; background: var(--primary); color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
         button:hover { background: #1d4ed8; }
@@ -75,20 +76,21 @@
         <div class="part-header">Part 2: Anion Gap 陰離子隙與電解質分析（選填項目）</div>
         <div class="grid">
             <div class="group">
-                <label for="ag">直接輸入 Anion Gap (mEq/L)</label>
-                <input type="number" id="ag" step="0.1" placeholder="若無電解質可直接填此欄">
+                <label for="ag">Anion Gap (mEq/L)</label>
+                <input type="number" id="ag" step="0.1" placeholder="填入 Na/Cl/Albumin 自動帶入">
+                <span class="hint" id="agHint">可直接手動輸入，或填寫右側數據自動計算</span>
             </div>
             <div class="group">
                 <label for="na">Na+ (mEq/L)</label>
-                <input type="number" id="na" step="0.1" placeholder="例: 140">
+                <input type="number" id="na" step="0.1" placeholder="例: 145">
             </div>
             <div class="group">
                 <label for="cl">Cl- (mEq/L)</label>
-                <input type="number" id="cl" step="0.1" placeholder="例: 102">
+                <input type="number" id="cl" step="0.1" placeholder="例: 110">
             </div>
             <div class="group">
                 <label for="albumin">Serum Albumin (g/dL)</label>
-                <input type="number" id="albumin" step="0.1" placeholder="例: 4.0 (校正 AG 用)">
+                <input type="number" id="albumin" step="0.1" placeholder="例: 3.0 (校正 AG 用)">
                 <span class="hint">預設基準為 4.0 g/dL</span>
             </div>
         </div>
@@ -104,8 +106,42 @@
 </div>
 
 <script>
+// 自動計算並回填 Anion Gap
+function autoCalculateAG() {
+    const na = parseFloat(document.getElementById('na').value);
+    const cl = parseFloat(document.getElementById('cl').value);
+    const hco3 = parseFloat(document.getElementById('hco3').value);
+    const albumin = parseFloat(document.getElementById('albumin').value);
+    const agInput = document.getElementById('ag');
+
+    if (!isNaN(na) && !isNaN(cl) && !isNaN(hco3)) {
+        let rawAG = na - (cl + hco3);
+        let finalAG = rawAG;
+
+        if (!isNaN(albumin)) {
+            finalAG = rawAG + 2.5 * (4.0 - albumin);
+            document.getElementById('agHint').innerText = `已自動依 Albumin ${albumin} g/dL 校正計算`;
+        } else {
+            document.getElementById('agHint').innerText = `已自動依 Na - (Cl + HCO3) 帶入計算`;
+        }
+
+        agInput.value = finalAG.toFixed(1);
+        agInput.classList.add('auto-calculated');
+    }
+}
+
+// 監聽電解質與 HCO3- 輸入事件
+['na', 'cl', 'albumin', 'hco3'].forEach(id => {
+    document.getElementById(id).addEventListener('input', autoCalculateAG);
+});
+
+// 使用者若手動修改 AG 輸入框，清除自動醒目提示
+document.getElementById('ag').addEventListener('input', function() {
+    this.classList.remove('auto-calculated');
+    document.getElementById('agHint').innerText = '手動修改模式';
+});
+
 function calculateABG() {
-    // 取得 Part 1 數據
     const ph = parseFloat(document.getElementById('ph').value);
     const paco2 = parseFloat(document.getElementById('paco2').value);
     const hco3 = parseFloat(document.getElementById('hco3').value);
@@ -114,7 +150,6 @@ function calculateABG() {
     const peep = parseFloat(document.getElementById('peep').value);
     const isChronic = document.getElementById('isChronic').value === 'true';
 
-    // 取得 Part 2 數據
     let ag = parseFloat(document.getElementById('ag').value);
     const na = parseFloat(document.getElementById('na').value);
     const cl = parseFloat(document.getElementById('cl').value);
@@ -125,54 +160,32 @@ function calculateABG() {
         return;
     }
 
-    // --- 1. 基本酸鹼狀態 ---
-    let status = "";
-    if (ph < 7.35) status = "Acidemia (酸血症)";
-    else if (ph > 7.45) status = "Alkalemia (鹼血症)";
-    else status = "Normal pH / Mixed Disorder (pH 正常或混合型失衡)";
-
+    // 酸鹼狀態分析
+    let status = ph < 7.35 ? "Acidemia (酸血症)" : (ph > 7.45 ? "Alkalemia (鹼血症)" : "Normal pH / Mixed Disorder");
     let primary = [];
-    const isRespAcid = paco2 > 45;
-    const isRespAlk = paco2 < 35;
-    const isMetAcid = hco3 < 22;
-    const isMetAlk = hco3 > 26;
+    const isRespAcid = paco2 > 45, isRespAlk = paco2 < 35, isMetAcid = hco3 < 22, isMetAlk = hco3 > 26;
 
-    if (isRespAcid) primary.push("Respiratory Acidosis (呼吸性酸中毒)");
-    else if (isRespAlk) primary.push("Respiratory Alkalosis (呼吸性鹼中毒)");
+    if (isRespAcid) primary.push("Respiratory Acidosis");
+    else if (isRespAlk) primary.push("Respiratory Alkalosis");
+    if (isMetAcid) primary.push("Metabolic Acidosis");
+    else if (isMetAlk) primary.push("Metabolic Alkalosis");
 
-    if (isMetAcid) primary.push("Metabolic Acidosis (代謝性酸中毒)");
-    else if (isMetAlk) primary.push("Metabolic Alkalosis (代謝性鹼中毒)");
-
-    // --- 2. 生理計算公式 (Winter's Formula 等代償預測) ---
+    // 生理代償預測
     let compNotes = [];
-
-    // (A) 代酸：Winter's Formula
     if (isMetAcid) {
         const expCO2 = (1.5 * hco3) + 8;
-        const minCO2 = expCO2 - 2;
-        const maxCO2 = expCO2 + 2;
-        if (paco2 < minCO2) {
-            compNotes.push(`Winter's Formula 預估 PaCO2: <strong>${expCO2.toFixed(1)}±2 mmHg</strong> -> 實測偏低 (${paco2})，併發呼吸性鹼中毒`);
-        } else if (paco2 > maxCO2) {
-            compNotes.push(`Winter's Formula 預估 PaCO2: <strong>${expCO2.toFixed(1)}±2 mmHg</strong> -> 實測偏高 (${paco2})，併發呼吸性酸中毒`);
-        } else {
-            compNotes.push(`Winter's Formula 預估 PaCO2: <strong>${expCO2.toFixed(1)}±2 mmHg</strong> -> 實測符合預估，為適當代償`);
-        }
+        if (paco2 < expCO2 - 2) compNotes.push(`Winter's Formula 預估 PaCO2: <strong>${expCO2.toFixed(1)}±2 mmHg</strong> -> 併發呼吸性鹼中毒`);
+        else if (paco2 > expCO2 + 2) compNotes.push(`Winter's Formula 預估 PaCO2: <strong>${expCO2.toFixed(1)}±2 mmHg</strong> -> 併發呼吸性酸中毒`);
+        else compNotes.push(`Winter's Formula 預估 PaCO2: <strong>${expCO2.toFixed(1)}±2 mmHg</strong> -> 適當代償`);
     }
 
-    // (B) 代鹼預估 PaCO2
     if (isMetAlk) {
         const expCO2 = 0.7 * (hco3 - 24) + 40;
-        if (paco2 > expCO2 + 5) {
-            compNotes.push(`代鹼預估 PaCO2: <strong>${expCO2.toFixed(1)}±5 mmHg</strong> -> 實測高於預期，併發呼吸性酸中毒`);
-        } else if (paco2 < expCO2 - 5) {
-            compNotes.push(`代鹼預估 PaCO2: <strong>${expCO2.toFixed(1)}±5 mmHg</strong> -> 實測低於預期，併發呼吸性鹼中毒`);
-        } else {
-            compNotes.push(`代鹼預估 PaCO2: <strong>${expCO2.toFixed(1)}±5 mmHg</strong> -> 符合適當代償`);
-        }
+        if (paco2 > expCO2 + 5) compNotes.push(`代鹼預估 PaCO2: <strong>${expCO2.toFixed(1)}±5 mmHg</strong> -> 併發呼吸性酸中毒`);
+        else if (paco2 < expCO2 - 5) compNotes.push(`代鹼預估 PaCO2: <strong>${expCO2.toFixed(1)}±5 mmHg</strong> -> 併發呼吸性鹼中毒`);
+        else compNotes.push(`代鹼預估 PaCO2: <strong>${expCO2.toFixed(1)}±5 mmHg</strong> -> 適當代償`);
     }
 
-    // (C) 呼吸性失衡預估 HCO3-
     if (isRespAcid) {
         const deltaCO2 = paco2 - 40;
         const expHCO3 = isChronic ? 24 + (deltaCO2 / 10 * 3.5) : 24 + (deltaCO2 / 10 * 1);
@@ -183,73 +196,51 @@ function calculateABG() {
         compNotes.push(`呼吸性鹼中毒 (${isChronic ? '慢性' : '急性'}) 預估 HCO3-: <strong>${expHCO3.toFixed(1)} mEq/L</strong>`);
     }
 
-    // --- 3. Part 1 氧合分析 (P/F Ratio & ARDS) ---
+    // 氧合分析
     let pfSummary = "";
     if (!isNaN(pao2) && !isNaN(fio2)) {
-        if (fio2 > 1.0) fio2 = fio2 / 100.0;
+        if (fio2 > 1.0) fio2 /= 100.0;
         const pf = (pao2 / fio2).toFixed(1);
         const peepOk = isNaN(peep) || peep >= 5;
-        let ards = "";
-        if (pf > 300) ards = "Normal P/F Ratio (>300)";
-        else if (pf > 200) ards = peepOk ? "Mild ARDS" : "Mild Impairment (PEEP < 5)";
-        else if (pf > 100) ards = peepOk ? "Moderate ARDS" : "Moderate Impairment (PEEP < 5)";
-        else ards = peepOk ? "Severe ARDS" : "Severe Impairment (PEEP < 5)";
-
+        let ards = pf > 300 ? "Normal P/F Ratio" : (pf > 200 ? (peepOk ? "Mild ARDS" : "Mild Impairment") : (pf > 100 ? (peepOk ? "Moderate ARDS" : "Moderate Impairment") : (peepOk ? "Severe ARDS" : "Severe Impairment")));
         pfSummary = `P/F Ratio: <strong>${pf} mmHg</strong> (${ards})`;
     }
 
-    // --- 4. Part 2 Anion Gap 與電解質計算 ---
-    let agCalculatedText = "";
-    let effectiveAG = NaN;
-
-    // 若有 Na+ 與 Cl-，自動計算原始 AG = Na - (Cl + HCO3)
-    if (!isNaN(na) && !isNaN(cl)) {
-        effectiveAG = na - (cl + hco3);
-        agCalculatedText = `由電解質算得 AG = ${na} - (${cl} + ${hco3}) = <strong>${effectiveAG.toFixed(1)} mEq/L</strong>`;
-    } else if (!isNaN(ag)) {
-        effectiveAG = ag;
-        agCalculatedText = `直接採用輸入 AG = <strong>${effectiveAG.toFixed(1)} mEq/L</strong>`;
+    // Anion Gap 診斷
+    let agDiagnosisText = "";
+    if (!isNaN(ag)) {
+        if (ag > 12) {
+            agDiagnosisText = `Anion Gap 判讀: <strong style="color:#c2410c;">High Anion Gap (${ag.toFixed(1)} mEq/L)</strong><br>` +
+                              `<span style="font-size:0.85rem; color:#475569;">病因考量 (GOLD MARK / MUDPILES): Glycols, Oxoproline, L-Lactate, D-Lactate, Methanol, Aspirin, Renal Failure, Ketoacidosis</span>`;
+        } else if (ag < 8) {
+            agDiagnosisText = `Anion Gap 判讀: <strong style="color:#0369a1;">Low Anion Gap (${ag.toFixed(1)} mEq/L)</strong><br>` +
+                              `<span style="font-size:0.85rem; color:#475569;">病因考量: Hypoalbuminemia, Multiple Myeloma (IgG), Lithium toxicity, Severe Hypercalcemia</span>`;
+        } else {
+            agDiagnosisText = `Anion Gap 判讀: <strong>Normal Anion Gap (${ag.toFixed(1)} mEq/L)</strong><br>` +
+                              `<span style="font-size:0.85rem; color:#475569;">病因考量 (HARDUPS): Diarrhea, RTA, Acetazolamide, Saline infusion</span>`;
+        }
     }
 
-    // Albumin 校正 Anion Gap
-    let correctedAGText = "";
-    if (!isNaN(effectiveAG) && !isNaN(albumin)) {
-        const correctedAG = effectiveAG + 2.5 * (4.0 - albumin);
-        effectiveAG = correctedAG; // 轉為用校正後的 AG 評估 Delta Ratio
-        correctedAGText = `<br>白蛋白校正 Corrected AG = <strong>${correctedAG.toFixed(1)} mEq/L</strong> (Albumin: ${albumin} g/dL)`;
-    }
-
-    // Delta Ratio 分析 (當 AG > 12 且有代謝性酸中毒時)
+    // Delta Ratio
     let deltaText = "";
-    if (!isNaN(effectiveAG) && effectiveAG > 12 && isMetAcid) {
-        const deltaAG = effectiveAG - 12;
+    if (!isNaN(ag) && ag > 12 && isMetAcid) {
+        const deltaAG = ag - 12;
         const deltaHCO3 = 24 - hco3;
         if (deltaHCO3 > 0) {
             const ratio = (deltaAG / deltaHCO3).toFixed(2);
-            let interp = "";
-            if (ratio < 0.4) interp = "Hyperchloremic / Normal AG Metabolic Acidosis";
-            else if (ratio <= 2.0) interp = "Pure High AG Metabolic Acidosis";
-            else interp = "High AG Met Acidosis + Concomitant Metabolic Alkalosis";
-            
+            let interp = ratio < 0.4 ? "Hyperchloremic / Normal AG Metabolic Acidosis" : (ratio <= 2.0 ? "Pure High AG Metabolic Acidosis" : "High AG Met Acidosis + Concomitant Metabolic Alkalosis");
             deltaText = `Delta Ratio (ΔAG/ΔHCO3) = <strong>${ratio}</strong> (${interp})`;
         }
     }
 
-    // --- 渲染畫面 ---
     document.getElementById('resultSummary').innerText = `${status} | ${primary.join(' + ') || '無明顯主疾病'}`;
     
     let html = "";
-    if (compNotes.length > 0) {
-        html += `<div class="section-box"><p><strong>代償預測公式:</strong><br>${compNotes.join('<br>')}</p></div>`;
-    }
-    if (pfSummary) {
-        html += `<div class="section-box"><p><strong>重症氧合評估:</strong><br>${pfSummary}</p></div>`;
-    }
-    if (agCalculatedText) {
-        html += `<div class="section-box"><p><strong>Anion Gap 分析:</strong><br>${agCalculatedText}${correctedAGText}</p>`;
-        if (deltaText) {
-            html += `<p>${deltaText}</p>`;
-        }
+    if (compNotes.length > 0) html += `<div class="section-box"><p><strong>代償預測公式:</strong><br>${compNotes.join('<br>')}</p></div>`;
+    if (pfSummary) html += `<div class="section-box"><p><strong>重症氧合評估:</strong><br>${pfSummary}</p></div>`;
+    if (agDiagnosisText) {
+        html += `<div class="section-box"><p><strong>Anion Gap 數值與判讀:</strong><br>${agDiagnosisText}</p>`;
+        if (deltaText) html += `<p><strong>Delta Ratio 分析:</strong><br>${deltaText}</p>`;
         html += `</div>`;
     }
 
