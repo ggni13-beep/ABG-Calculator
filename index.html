@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ABG 判讀 & P/F Ratio 計算器</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        h2 { margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+        .group { display: flex; flex-direction: column; }
+        label { font-size: 0.9rem; font-weight: 600; margin-bottom: 6px; color: #475569; }
+        input, select { padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 1rem; }
+        button { width: 100%; padding: 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        .result { margin-top: 20px; padding: 16px; background: #f1f5f9; border-left: 4px solid #2563eb; border-radius: 4px; display: none; }
+        .highlight { font-weight: bold; color: #0369a1; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>ABG 判讀 & P/F Ratio 計算器</h2>
+    <form id="abgForm">
+        <div class="grid">
+            <div class="group"><label>pH 值 *</label><input type="number" id="ph" step="0.01" placeholder="例: 7.31" required></div>
+            <div class="group"><label>PaCO2 (mmHg) *</label><input type="number" id="paco2" step="0.1" placeholder="例: 30" required></div>
+            <div class="group"><label>HCO3- (mEq/L) *</label><input type="number" id="hco3" step="0.1" placeholder="例: 15" required></div>
+            <div class="group"><label>PaO2 (mmHg)</label><input type="number" id="pao2" step="0.1" placeholder="例: 80"></div>
+            <div class="group"><label>FiO2 (21-100% 或 0.21-1)</label><input type="number" id="fio2" step="0.01" placeholder="例: 50 或 0.5"></div>
+            <div class="group"><label>PEEP (cmH2O)</label><input type="number" id="peep" step="0.1" placeholder="例: 8"></div>
+            <div class="group"><label>Anion Gap (mEq/L)</label><input type="number" id="ag" step="0.1" placeholder="例: 18"></div>
+            <div class="group">
+                <label>呼吸性失衡型態</label>
+                <select id="isChronic"><option value="false">急性 (Acute)</option><option value="true">慢性 (Chronic)</option></select>
+            </div>
+        </div>
+        <button type="button" onclick="calculateABG()">開始判讀分析</button>
+    </form>
+    <div id="resultBox" class="result">
+        <h3>判讀結果 Summary</h3>
+        <div id="resultSummary" class="highlight"></div>
+        <div id="resultDetails"></div>
+    </div>
+</div>
+<script>
+function calculateABG() {
+    const ph = parseFloat(document.getElementById('ph').value);
+    const paco2 = parseFloat(document.getElementById('paco2').value);
+    const hco3 = parseFloat(document.getElementById('hco3').value);
+    const pao2 = parseFloat(document.getElementById('pao2').value);
+    let fio2 = parseFloat(document.getElementById('fio2').value);
+    const peep = parseFloat(document.getElementById('peep').value);
+    const ag = parseFloat(document.getElementById('ag').value);
+
+    if (isNaN(ph) || isNaN(paco2) || isNaN(hco3)) { alert("請至少輸入 pH、PaCO2 與 HCO3- 數值！"); return; }
+
+    let status = ph < 7.35 ? "Acidemia (酸血症)" : (ph > 7.45 ? "Alkalemia (鹼血症)" : "Normal pH / Mixed Disorder");
+    let primary = [];
+    if (paco2 > 45) primary.push("Respiratory Acidosis");
+    else if (paco2 < 35) primary.push("Respiratory Alkalosis");
+    if (hco3 < 22) primary.push("Metabolic Acidosis");
+    else if (hco3 > 26) primary.push("Metabolic Alkalosis");
+
+    let details = [];
+    if (hco3 < 22) {
+        const expCO2 = (1.5 * hco3) + 8;
+        if (paco2 < expCO2 - 2) details.push(`Winter's Formula PaCO2 預估 ${expCO2.toFixed(1)}±2 -> 併發呼吸性鹼中毒`);
+        else if (paco2 > expCO2 + 2) details.push(`Winter's Formula PaCO2 預估 ${expCO2.toFixed(1)}±2 -> 併發呼吸性酸中毒`);
+        else details.push(`Winter's Formula PaCO2 預估 ${expCO2.toFixed(1)}±2 -> 適當代償`);
+    }
+
+    let pfSummary = "";
+    if (!isNaN(pao2) && !isNaN(fio2)) {
+        if (fio2 > 1.0) fio2 = fio2 / 100.0;
+        const pf = (pao2 / fio2).toFixed(1);
+        const peepOk = isNaN(peep) || peep >= 5;
+        let ards = pf > 300 ? "Normal P/F Ratio" : (pf > 200 ? (peepOk ? "Mild ARDS" : "Mild Impairment") : (pf > 100 ? (peepOk ? "Moderate ARDS" : "Moderate Impairment") : (peepOk ? "Severe ARDS" : "Severe Impairment")));
+        pfSummary = `P/F Ratio: ${pf} mmHg (${ards})`;
+    }
+
+    let deltaSummary = "";
+    if (!isNaN(ag) && ag > 12 && hco3 < 22) {
+        const deltaAG = ag - 12;
+        const deltaHCO3 = 24 - hco3;
+        if (deltaHCO3 > 0) {
+            const ratio = (deltaAG / deltaHCO3).toFixed(2);
+            deltaSummary = `Delta Ratio: ${ratio} ${ratio < 0.4 ? '(Normal AG Met Acidosis)' : (ratio <= 2.0 ? '(Pure High AG Met Acidosis)' : '(High AG Met Acidosis + Met Alkalosis)')}`;
+        }
+    }
+
+    document.getElementById('resultSummary').innerText = `${status} | ${primary.join(' + ') || '無明顯主疾病'}`;
+    let html = "";
+    if (pfSummary) html += `<p><strong>氧合狀態:</strong> ${pfSummary}</p>`;
+    if (details.length > 0) html += `<p><strong>代償分析:</strong> ${details.join('<br>')}</p>`;
+    if (deltaSummary) html += `<p><strong>Delta Ratio:</strong> ${deltaSummary}</p>`;
+    document.getElementById('resultDetails').innerHTML = html;
+    document.getElementById('resultBox').style.display = 'block';
+}
+</script>
+</body>
+</html>
